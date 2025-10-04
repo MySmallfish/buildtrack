@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BuildTrack - Building Projects Tracking</title>
+    <link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+    <div id="app">
+        <div id="auth-view" class="auth-container" style="display: none;">
+            <div class="auth-card">
+                <h1>BuildTrack</h1>
+                <p class="subtitle">Building Projects Tracking Platform</p>
+                
+                <!-- Login Form -->
+                <form id="login-form" style="display: none;">
+                    <div class="form-group">
+                        <label for="login-email">Email</label>
+                        <input type="email" id="login-email" name="email" required autocomplete="email">
+                    </div>
+                    <div class="form-group">
+                        <label for="login-password">Password</label>
+                        <input type="password" id="login-password" name="password" required autocomplete="current-password">
+                    </div>
+                    <div id="login-error" class="error-message" style="display: none;"></div>
+                    <button type="submit" class="btn btn-primary">Login</button>
+                    <p class="auth-switch">
+                        Don't have an account? <a href="#" id="show-signup">Sign up</a>
+                    </p>
+                </form>
+
+                <!-- Signup Form -->
+                <form id="signup-form" style="display: none;">
+                    <div class="form-group">
+                        <label for="signup-fullname">Full Name</label>
+                        <input type="text" id="signup-fullname" name="fullName" required autocomplete="name">
+                    </div>
+                    <div class="form-group">
+                        <label for="signup-email">Email</label>
+                        <input type="email" id="signup-email" name="email" required autocomplete="email">
+                    </div>
+                    <div class="form-group">
+                        <label for="signup-workspace">Workspace Name</label>
+                        <input type="text" id="signup-workspace" name="workspaceName" required placeholder="Your company or team name">
+                    </div>
+                    <div class="form-group">
+                        <label for="signup-password">Password</label>
+                        <input type="password" id="signup-password" name="password" required autocomplete="new-password" minlength="8">
+                        <small>At least 8 characters with uppercase and digit</small>
+                    </div>
+                    <div id="signup-error" class="error-message" style="display: none;"></div>
+                    <button type="submit" class="btn btn-primary">Sign Up</button>
+                    <p class="auth-switch">
+                        Already have an account? <a href="#" id="show-login">Login</a>
+                    </p>
+                </form>
+
+                <!-- Verification Form -->
+                <form id="verify-form" style="display: none;">
+                    <p class="verification-message">We've sent a 6-digit verification code to <strong id="verify-email-display"></strong></p>
+                    <div class="form-group">
+                        <label for="verify-code">Verification Code</label>
+                        <input type="text" id="verify-code" name="code" required maxlength="6" pattern="[0-9]{6}" placeholder="000000" autocomplete="off">
+                    </div>
+                    <div id="verify-error" class="error-message" style="display: none;"></div>
+                    <button type="submit" class="btn btn-primary">Verify Email</button>
+                    <p class="auth-switch">
+                        Didn't receive the code? <a href="#" id="resend-code">Resend</a>
+                    </p>
+                    <p class="auth-switch">
+                        <a href="#" id="back-to-login">Back to login</a>
+                    </p>
+                </form>
+            </div>
+        </div>
+
+        <div id="main-view" style="display: none;">
+            <aside class="sidebar">
+                <div class="sidebar-header">
+                    <h2>BuildTrack</h2>
+                </div>
+                <div class="sidebar-search">
+                    <input type="search" placeholder="Search..." id="global-search">
+                </div>
+                <nav class="sidebar-nav">
+                    <div class="nav-section">
+                        <a href="/" class="nav-link" data-route="overview">
+                            <span class="icon">📊</span>
+                            Overview
+                        </a>
+                        <a href="/analytics" class="nav-link" data-route="analytics">
+                            <span class="icon">📈</span>
+                            Analytics
+                        </a>
+                    </div>
+                    <div class="nav-section">
+                        <div class="nav-section-title">Team</div>
+                        <a href="/team/members" class="nav-link" data-route="teamMembers">
+                            <span class="icon">👥</span>
+                            Members
+                        </a>
+                        <a href="/team/roles" class="nav-link" data-route="teamRoles">
+                            <span class="icon">🔐</span>
+                            Roles & Permissions
+                        </a>
+                    </div>
+                    <div class="nav-section">
+                        <div class="nav-section-title">Projects</div>
+                        <a href="/projects/active" class="nav-link" data-route="projectsActive">
+                            <span class="icon">📁</span>
+                            Active Projects
+                        </a>
+                        <a href="/projects/archived" class="nav-link" data-route="projectsArchived">
+                            <span class="icon">📦</span>
+                            Archived
+                        </a>
+                        <a href="/projects/types" class="nav-link" data-route="projectTypes">
+                            <span class="icon">🏗️</span>
+                            Project Types
+                        </a>
+                    </div>
+                    <div class="nav-section">
+                        <div class="nav-section-title">Settings</div>
+                        <a href="/settings/templates" class="nav-link" data-route="templates">
+                            <span class="icon">📋</span>
+                            Templates
+                        </a>
+                        <a href="/settings/milestone-types" class="nav-link" data-route="milestoneTypes">
+                            <span class="icon">🎯</span>
+                            Milestone Types
+                        </a>
+                        <a href="/settings/document-types" class="nav-link" data-route="documentTypes">
+                            <span class="icon">📝</span>
+                            Document Types
+                        </a>
+                        <a href="/settings/skills" class="nav-link" data-route="skills">
+                            <span class="icon">⚙️</span>
+                            Skills
+                        </a>
+                    </div>
+                    <div class="nav-section">
+                        <a href="/documents" class="nav-link" data-route="documents">
+                            <span class="icon">📄</span>
+                            Documents
+                        </a>
+                        <a href="/calendar" class="nav-link" data-route="calendar">
+                            <span class="icon">📅</span>
+                            Calendar
+                        </a>
+                        <a href="/messages" class="nav-link" data-route="messages">
+                            <span class="icon">💬</span>
+                            Messages
+                            <span class="badge" id="notifications-badge" style="display: none;">0</span>
+                        </a>
+                    </div>
+                </nav>
+                <div class="sidebar-footer">
+                    <div class="user-profile">
+                        <div class="user-avatar" id="user-avatar">U</div>
+                        <div class="user-info">
+                            <div class="user-name" id="user-name">User</div>
+                            <div class="user-role" id="user-role">Role</div>
+                        </div>
+                        <button class="btn-icon" id="logout-btn" title="Logout">
+                            <span>🚪</span>
+                        </button>
+                    </div>
+                </div>
+            </aside>
+
+            <main class="main-content">
+                <div id="page-container"></div>
+            </main>
+
+            <div id="drawer" class="drawer" style="display: none;">
+                <div class="drawer-overlay"></div>
+                <div class="drawer-content">
+                    <div class="drawer-header">
+                        <h3 id="drawer-title">Project Summary</h3>
+                        <button class="btn-icon" id="drawer-close">✕</button>
+                    </div>
+                    <div class="drawer-body" id="drawer-body">
+                        <!-- Dynamic content -->
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script type="module" src="/js/main.js"></script>
+</body>
+</html>
