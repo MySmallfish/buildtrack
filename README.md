@@ -209,19 +209,24 @@ npx playwright test
 - Audit logging for sensitive operations
 - CORS configured for known origins
 
-## Deployment
+### Deployment
 
 ### Docker Compose (Development)
 ```bash
 docker-compose up
 ```
 
+### Render (Preview & Production)
+- **Prerequisites**: Create services on Render using `render.yaml` and ensure secrets (database URL, JWT key, S3 credentials, email provider keys) are set in the Render dashboard.
+- **API service**: Render detects `src/api/BuildTrack.Api/Dockerfile`. Auto deploy from `main`, port bound via the `PORT` variable. Health check at `/health`.
+- **Static site**: Deploy `buildtrack-web` from `src/web/` with no build command and publish root set to `.`. Configure `API_BASE_URL` per environment.
+- **PR previews**: Enable previews so Render spins temporary copies of both services for pull requests.
+- **Manual deploys**: Use Render deploy hooks stored as GitHub secrets to trigger builds from GitHub Actions.
+
 ### Production
 See `.github/workflows/deploy.yml` for CI/CD pipeline.
 
 ## Contributing
-
-1. Create a feature branch: `feature/US-<story>-<short-title>`
 2. Follow conventional commits: `feat(api): A1 login endpoint (#A1-T1)`
 3. Update `docs/progress.md` after each story
 4. Mark tasks done in `docs/backlog.yaml`

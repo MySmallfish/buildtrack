@@ -18,6 +18,11 @@ Log.Logger = new LoggerConfiguration()
     .ReadFrom.Configuration(builder.Configuration)
     .Enrich.FromLogContext()
     .WriteTo.Console()
+    .WriteTo.File(
+        path: "logs/buildtrack-.log",
+        rollingInterval: RollingInterval.Day,
+        retainedFileCountLimit: 30,
+        outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} [{Level:u3}] {Message:lj}{NewLine}{Exception}")
     .CreateLogger();
 
 builder.Host.UseSerilog();
@@ -102,6 +107,15 @@ builder.Services.AddSwaggerGen(c =>
     });
 });
 
+// Configure JSON options for camelCase
+builder.Services.ConfigureHttpJsonOptions(options =>
+{
+    options.SerializerOptions.PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase;
+    options.SerializerOptions.PropertyNameCaseInsensitive = true;
+    // Allow enum values to be read as strings (case-insensitive)
+    options.SerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter(allowIntegerValues: true));
+});
+
 // CORS
 builder.Services.AddCors(options =>
 {
@@ -156,7 +170,25 @@ app.MapUserEndpoints();
 app.MapNotificationEndpoints();
 app.MapAutomationEndpoints();
 
+// Request logging middleware
+app.Use(async (context, next) =>
+{
+    var logger = context.RequestServices.GetRequiredService<ILogger<Program>>();
+    logger.LogInformation("HTTP {Method} {Path} from {RemoteIp}", 
+        context.Request.Method, 
+        context.Request.Path, 
+        context.Connection.RemoteIpAddress);
+    
+    await next();
+    
+    logger.LogInformation("HTTP {Method} {Path} responded {StatusCode}", 
+        context.Request.Method, 
+        context.Request.Path, 
+        context.Response.StatusCode);
+});
+
 Log.Information("BuildTrack API starting...");
+Log.Information("Logs will be written to: logs/buildtrack-{{Date}}.log");
 
 app.Run();
 

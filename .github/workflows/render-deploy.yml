@@ -1,0 +1,83 @@
+name: Render Deploy
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build-api:
+    name: Build & Test API
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: src/api
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Restore
+        run: dotnet restore BuildTrack.sln
+
+      - name: Build
+        run: dotnet build BuildTrack.sln --configuration Release --no-restore
+
+      - name: Test
+        run: dotnet test BuildTrack.sln --configuration Release --no-build --verbosity normal
+
+  lint-web:
+    name: Lint Web Assets
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Dependencies
+        working-directory: src/web
+        run: |
+          if [ -f package.json ]; then npm ci; else echo "No package.json"; fi
+
+      - name: Run Lint
+        working-directory: src/web
+        run: |
+          if [ -f package.json ]; then npm run lint; else echo "No lint script"; fi
+
+  deploy-render:
+    name: Trigger Render Deploy
+    needs:
+      - build-api
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+    steps:
+      - name: Trigger API Deploy
+        env:
+          RENDER_API_DEPLOY_HOOK: ${{ secrets.RENDER_API_DEPLOY_HOOK }}
+        run: |
+          if [ -z "$RENDER_API_DEPLOY_HOOK" ]; then
+            echo "RENDER_API_DEPLOY_HOOK secret not set."
+            exit 1
+          fi
+          curl -fsSL -X POST "$RENDER_API_DEPLOY_HOOK"
+
+      - name: Trigger Web Deploy
+        env:
+          RENDER_WEB_DEPLOY_HOOK: ${{ secrets.RENDER_WEB_DEPLOY_HOOK }}
+        run: |
+          if [ -z "$RENDER_WEB_DEPLOY_HOOK" ]; then
+            echo "RENDER_WEB_DEPLOY_HOOK secret not set."
+            exit 1
+          fi
+          curl -fsSL -X POST "$RENDER_WEB_DEPLOY_HOOK"

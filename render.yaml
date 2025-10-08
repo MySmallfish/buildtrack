@@ -1,0 +1,49 @@
+services:
+  - type: web
+    name: buildtrack-api
+    env: docker
+    plan: starter
+    rootDir: src/api/BuildTrack.Api
+    dockerfilePath: src/api/BuildTrack.Api/Dockerfile
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: ASPNETCORE_ENVIRONMENT
+        value: Production
+      - key: CONNECTIONSTRINGS__DefaultConnection
+        sync: false
+      - key: JWT__Key
+        sync: false
+      - key: JWT__Issuer
+        value: BuildTrack
+      - key: JWT__Audience
+        value: BuildTrack
+      - key: S3__ServiceUrl
+        sync: false
+      - key: S3__AccessKey
+        sync: false
+      - key: S3__SecretKey
+        sync: false
+      - key: S3__BucketName
+        value: buildtrack-documents
+      - key: S3__UseLocalStack
+        value: "false"
+      - key: EMAIL__Provider
+        value: SendGrid
+      - key: SENDGRID__ApiKey
+        sync: false
+      - key: EMAIL__FromEmail
+        value: noreply@buildtrack.local
+      - key: EMAIL__FromName
+        value: BuildTrack
+
+  - type: static_site
+    name: buildtrack-web
+    branch: main
+    rootDir: src/web
+    buildCommand: ""
+    publishPath: .
+    autoDeploy: true
+    envVars:
+      - key: API_BASE_URL
+        sync: false

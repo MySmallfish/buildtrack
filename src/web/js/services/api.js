@@ -1,20 +1,40 @@
-const API_BASE = 'https://localhost:7108/api/v1';
+// Read API URL from meta tag or use default
+const getApiBase = () => {
+    const metaTag = document.querySelector('meta[name="Api.Address"]');
+    const apiUrl = metaTag?.content || 'https://localhost:7108';
+    return `${apiUrl}/api/v1`;
+};
 
-let accessToken = null;
-let refreshToken = null;
+const API_BASE = getApiBase();
+const TOKEN_EXPIRY_DAYS = 7; // Keep session for 7 days
 
 export function setTokens(access, refresh) {
-    accessToken = access;
-    refreshToken = refresh;
+    const expiry = new Date();
+    expiry.setDate(expiry.getDate() + TOKEN_EXPIRY_DAYS);
+    
+    localStorage.setItem('accessToken', access);
+    localStorage.setItem('refreshToken', refresh);
+    localStorage.setItem('tokenExpiry', expiry.toISOString());
 }
 
 export function getTokens() {
-    return { accessToken, refreshToken };
+    // Check if tokens are expired
+    const expiry = localStorage.getItem('tokenExpiry');
+    if (expiry && new Date(expiry) < new Date()) {
+        clearTokens();
+        return { accessToken: null, refreshToken: null };
+    }
+    
+    return {
+        accessToken: localStorage.getItem('accessToken'),
+        refreshToken: localStorage.getItem('refreshToken')
+    };
 }
 
 export function clearTokens() {
-    accessToken = null;
-    refreshToken = null;
+    localStorage.removeItem('accessToken');
+    localStorage.removeItem('refreshToken');
+    localStorage.removeItem('tokenExpiry');
 }
 
 async function fetchWithAuth(url, options = {}) {
@@ -99,7 +119,9 @@ async function refreshAccessToken() {
 
 // Auth
 export async function checkSession() {
-    if (!accessToken) {
+    const tokens = getTokens();
+    
+    if (!tokens.accessToken) {
         return { user: null };
     }
 
@@ -107,10 +129,12 @@ export async function checkSession() {
         const response = await fetchWithAuth(`${API_BASE}/auth/me`);
         if (response.ok) {
             const user = await response.json();
-            return { user };
+            return { user, tokens };
         }
     } catch (error) {
         console.error('Session check failed:', error);
+        // Clear invalid tokens
+        clearTokens();
     }
     return { user: null };
 }
@@ -207,9 +231,113 @@ export async function fetchProjectSummary({ projectId, milestoneId }) {
     return { project, milestone: project.milestones?.find(m => m.id === milestoneId), stats: {} };
 }
 
+export async function archiveProject(projectId) {
+    const response = await fetchWithAuth(`${API_BASE}/projects/${projectId}/archive`, {
+        method: 'POST'
+    });
+    if (!response.ok) {
+        const errorMsg = await getErrorMessage(response);
+        throw new Error(errorMsg);
+    }
+    return response.json();
+}
+
+export async function restoreProject(projectId) {
+    const response = await fetchWithAuth(`${API_BASE}/projects/${projectId}/restore`, {
+        method: 'POST'
+    });
+    if (!response.ok) {
+        const errorMsg = await getErrorMessage(response);
+        throw new Error(errorMsg);
+    }
+    return response.json();
+}
+
+export async function fetchDocuments(filters = {}) {
+    const params = new URLSearchParams();
+    if (filters.status) params.append('status', filters.status);
+    if (filters.projectId) params.append('projectId', filters.projectId);
+    
+    const response = await fetchWithAuth(`${API_BASE}/documents?${params}`);
+    if (!response.ok) throw new Error('Failed to fetch documents');
+    return response.json();
+}
+
+export async function getDocumentDownloadUrl(documentId) {
+    const response = await fetchWithAuth(`${API_BASE}/documents/${documentId}/download-url`);
+    if (!response.ok) throw new Error('Failed to get download URL');
+    return response.json();
+}
+
+export async function approveDocument(documentId, comment = null) {
+    const response = await fetchWithAuth(`${API_BASE}/documents/${documentId}/approve`, {
+        method: 'POST',
+        body: JSON.stringify({ Comment: comment })
+    });
+    if (!response.ok) throw new Error('Failed to approve document');
+    return response.json();
+}
+
+export async function rejectDocument(documentId, reason) {
+    const response = await fetchWithAuth(`${API_BASE}/documents/${documentId}/reject`, {
+        method: 'POST',
+        body: JSON.stringify({ Reason: reason })
+    });
+    if (!response.ok) throw new Error('Failed to reject document');
+    return response.json();
+}
+
+export async function createMilestoneDocument({ milestoneId, fileName, fileSize, documentType, notes }) {
+    const response = await fetchWithAuth(`${API_BASE}/milestones/${milestoneId}/documents`, {
+        method: 'POST',
+        body: JSON.stringify({
+            FileName: fileName,
+            FileSize: fileSize,
+            DocumentType: documentType,
+            Notes: notes
+        })
+    });
+    
+    if (!response.ok) {
+        const errorMsg = await getErrorMessage(response);
+        throw new Error(errorMsg);
+    }
+    return response.json();
+}
+
+export async function uploadDocument(formData) {
+    const tokens = getTokens();
+    const response = await fetch(`${API_BASE}/documents/upload`, {
+        method: 'POST',
+        headers: {
+            'Authorization': `Bearer ${tokens.accessToken}`
+        },
+        body: formData // Don't set Content-Type, let browser set it with boundary
+    });
+    
+    if (!response.ok) {
+        const errorMsg = await getErrorMessage(response);
+        throw new Error(errorMsg);
+    }
+    return response.json();
+}
+
 export async function createProject(data) {
     const response = await fetchWithAuth(`${API_BASE}/projects`, {
         method: 'POST',
+        body: JSON.stringify(data)
+    });
+
+    if (!response.ok) {
+        const errorMsg = await getErrorMessage(response);
+        throw new Error(errorMsg);
+    }
+    return response.json();
+}
+
+export async function updateProject(projectId, data) {
+    const response = await fetchWithAuth(`${API_BASE}/projects/${projectId}`, {
+        method: 'PATCH',
         body: JSON.stringify(data)
     });
 
@@ -241,25 +369,6 @@ export async function confirmUpload({ requirementId, key, fileName, size, checks
     return response.json();
 }
 
-export async function approveDocument({ documentId }) {
-    const response = await fetchWithAuth(`${API_BASE}/documents/${documentId}/approve`, {
-        method: 'POST',
-        body: JSON.stringify({})
-    });
-
-    if (!response.ok) throw new Error('Failed to approve document');
-    return response.json();
-}
-
-export async function rejectDocument({ documentId, reason }) {
-    const response = await fetchWithAuth(`${API_BASE}/documents/${documentId}/reject`, {
-        method: 'POST',
-        body: JSON.stringify({ reason })
-    });
-
-    if (!response.ok) throw new Error('Failed to reject document');
-    return response.json();
-}
 
 // Entities
 export async function fetchSkills() {

@@ -16,6 +16,10 @@ public static class ProjectEndpoints
         string Name, string? Code, DateTime StartDate, Guid ProjectTypeId,
         Guid OwnerUserId, List<string>? StakeholderEmails, List<string>? Tags, string? Location);
 
+    public record UpdateProjectRequest(
+        string? Name, DateTime? StartDate, Guid? OwnerUserId,
+        List<string>? StakeholderEmails, List<string>? Tags, string? Location);
+
     public record ProjectDetailsDto(
         Guid Id, string Code, string Name, ProjectTypeDto ProjectType, DateTime StartDate,
         UserDto Owner, List<string> StakeholderEmails, List<string> Tags, string? Location,
@@ -45,6 +49,12 @@ public static class ProjectEndpoints
         Guid MilestoneTypeId,
         int DueOffsetDays,
         DateTime? AbsoluteDueDate);
+    
+    public record AddMilestoneDocumentRequest(
+        string FileName,
+        long FileSize,
+        string DocumentType,
+        string? Notes);
 
     public record UserDto(Guid Id, string Name, string Email);
     public record ProjectTypeDto(Guid Id, string Name);
@@ -59,6 +69,8 @@ public static class ProjectEndpoints
         group.MapGet("/{id}", GetProject).WithName("GetProject");
         group.MapPost("", CreateProject).WithName("CreateProject");
         group.MapPatch("/{id}", UpdateProject).WithName("UpdateProject");
+        group.MapPost("/{id}/archive", ArchiveProject).WithName("ArchiveProject");
+        group.MapPost("/{id}/restore", RestoreProject).WithName("RestoreProject");
 
         var milestones = app.MapGroup("/api/v1/milestones")
             .WithTags("Milestones")
@@ -66,6 +78,7 @@ public static class ProjectEndpoints
 
         milestones.MapPatch("/{id}", UpdateMilestone).WithName("UpdateMilestone");
         milestones.MapPost("/{id}/updates", AddMilestoneUpdate).WithName("AddMilestoneUpdate");
+        milestones.MapPost("/{id}/documents", AddMilestoneDocument).WithName("AddMilestoneDocument");
         
         var projectMilestones = app.MapGroup("/api/v1/projects/{projectId}/milestones")
             .WithTags("Milestones")
@@ -271,14 +284,105 @@ public static class ProjectEndpoints
 
     private static async Task<IResult> UpdateProject(
         Guid id,
-        [FromBody] object updates,
-        BuildTrackDbContext context)
+        [FromBody] UpdateProjectRequest request,
+        BuildTrackDbContext context,
+        HttpContext httpContext)
     {
-        var project = await context.Projects.FindAsync(id);
+        var workspaceId = GetWorkspaceId(httpContext);
+        if (workspaceId == null) return Results.Unauthorized();
+
+        var userId = GetUserId(httpContext);
+        if (userId == null) return Results.Unauthorized();
+
+        var project = await context.Projects
+            .FirstOrDefaultAsync(p => p.Id == id && p.WorkspaceId == workspaceId);
+        
         if (project == null) return Results.NotFound();
 
-        // Simple update - in real implementation, parse updates JSON
-        await context.SaveChangesAsync();
+        var changed = false;
+
+        if (request.Name != null && project.Name != request.Name)
+        {
+            var oldName = project.Name;
+            project.Name = request.Name;
+            changed = true;
+
+            var timelineEvent = new TimelineEvent
+            {
+                Id = Guid.NewGuid(),
+                ProjectId = project.Id,
+                Type = TimelineEventType.Comment,
+                Message = $"Project name changed from '{oldName}' to '{request.Name}'",
+                CreatedBy = userId.Value,
+                CreatedAt = DateTime.UtcNow
+            };
+            context.TimelineEvents.Add(timelineEvent);
+        }
+
+        if (request.StartDate.HasValue && project.StartDate != request.StartDate.Value)
+        {
+            var startDate = request.StartDate.Value.Kind == DateTimeKind.Unspecified 
+                ? DateTime.SpecifyKind(request.StartDate.Value, DateTimeKind.Utc)
+                : request.StartDate.Value.ToUniversalTime();
+
+            project.StartDate = startDate;
+            changed = true;
+
+            var timelineEvent = new TimelineEvent
+            {
+                Id = Guid.NewGuid(),
+                ProjectId = project.Id,
+                Type = TimelineEventType.Comment,
+                Message = $"Project start date changed to {startDate:yyyy-MM-dd}",
+                CreatedBy = userId.Value,
+                CreatedAt = DateTime.UtcNow
+            };
+            context.TimelineEvents.Add(timelineEvent);
+        }
+
+        if (request.OwnerUserId.HasValue && project.OwnerUserId != request.OwnerUserId.Value)
+        {
+            var newOwner = await context.Users.FindAsync(request.OwnerUserId.Value);
+            if (newOwner == null) return Results.BadRequest("Owner user not found");
+
+            var oldOwner = await context.Users.FindAsync(project.OwnerUserId);
+            project.OwnerUserId = request.OwnerUserId.Value;
+            changed = true;
+
+            var timelineEvent = new TimelineEvent
+            {
+                Id = Guid.NewGuid(),
+                ProjectId = project.Id,
+                Type = TimelineEventType.Comment,
+                Message = $"Project owner changed from {oldOwner?.FullName} to {newOwner.FullName}",
+                CreatedBy = userId.Value,
+                CreatedAt = DateTime.UtcNow
+            };
+            context.TimelineEvents.Add(timelineEvent);
+        }
+
+        if (request.StakeholderEmails != null)
+        {
+            project.StakeholderEmails = request.StakeholderEmails;
+            changed = true;
+        }
+
+        if (request.Tags != null)
+        {
+            project.Tags = request.Tags;
+            changed = true;
+        }
+
+        if (request.Location != null && project.Location != request.Location)
+        {
+            project.Location = request.Location;
+            changed = true;
+        }
+
+        if (changed)
+        {
+            await context.SaveChangesAsync();
+        }
 
         return Results.Ok(new { id = project.Id });
     }
@@ -561,6 +665,174 @@ public static class ProjectEndpoints
         await context.SaveChangesAsync();
 
         return Results.Created($"/api/v1/milestones/{milestone.Id}", new { id = milestone.Id });
+    }
+
+    private static async Task<IResult> ArchiveProject(
+        Guid id,
+        HttpContext httpContext,
+        BuildTrackDbContext context,
+        ILogger<Program> logger)
+    {
+        logger.LogInformation("Archive project request received for ID: {ProjectId}", id);
+        
+        var workspaceId = GetWorkspaceId(httpContext);
+        if (workspaceId == null)
+        {
+            logger.LogWarning("Archive failed: No workspace ID in claims");
+            return Results.Unauthorized();
+        }
+
+        var project = await context.Projects
+            .FirstOrDefaultAsync(p => p.Id == id && p.WorkspaceId == workspaceId);
+
+        if (project == null)
+        {
+            logger.LogWarning("Archive failed: Project {ProjectId} not found in workspace {WorkspaceId}", id, workspaceId);
+            return Results.NotFound();
+        }
+
+        logger.LogInformation("Archiving project {ProjectId} ({ProjectName})", project.Id, project.Name);
+        
+        project.Status = ProjectStatus.Archived;
+        project.ArchivedAt = DateTime.UtcNow;
+
+        await context.SaveChangesAsync();
+
+        logger.LogInformation("Project {ProjectId} archived successfully", project.Id);
+        return Results.Ok(new { message = "Project archived successfully" });
+    }
+
+    private static async Task<IResult> RestoreProject(
+        Guid id,
+        HttpContext httpContext,
+        BuildTrackDbContext context,
+        ILogger<Program> logger)
+    {
+        logger.LogInformation("Restore project request received for ID: {ProjectId}", id);
+        
+        var workspaceId = GetWorkspaceId(httpContext);
+        if (workspaceId == null)
+        {
+            logger.LogWarning("Restore failed: No workspace ID in claims");
+            return Results.Unauthorized();
+        }
+
+        var project = await context.Projects
+            .FirstOrDefaultAsync(p => p.Id == id && p.WorkspaceId == workspaceId);
+
+        if (project == null)
+        {
+            logger.LogWarning("Restore failed: Project {ProjectId} not found in workspace {WorkspaceId}", id, workspaceId);
+            return Results.NotFound();
+        }
+
+        logger.LogInformation("Restoring project {ProjectId} ({ProjectName})", project.Id, project.Name);
+        
+        project.Status = ProjectStatus.Active;
+        project.ArchivedAt = null;
+
+        await context.SaveChangesAsync();
+
+        logger.LogInformation("Project {ProjectId} restored successfully", project.Id);
+        return Results.Ok(new { message = "Project restored successfully" });
+    }
+
+    private static async Task<IResult> AddMilestoneDocument(
+        Guid id,
+        [FromBody] AddMilestoneDocumentRequest request,
+        BuildTrackDbContext context,
+        HttpContext httpContext,
+        ILogger<Program> logger)
+    {
+        logger.LogInformation("Add document to milestone {MilestoneId}", id);
+        
+        var userId = GetUserId(httpContext);
+        if (userId == null) return Results.Unauthorized();
+
+        var milestone = await context.Milestones
+            .Include(m => m.Project)
+            .FirstOrDefaultAsync(m => m.Id == id);
+
+        if (milestone == null)
+        {
+            logger.LogWarning("Milestone {MilestoneId} not found", id);
+            return Results.NotFound();
+        }
+
+        // For now, create a placeholder requirement if none exists
+        // In a full implementation, this would link to an actual requirement
+        var requirement = await context.DocumentRequirements
+            .FirstOrDefaultAsync(r => r.MilestoneId == milestone.Id);
+        
+        if (requirement == null)
+        {
+            var workspaceId = GetWorkspaceId(httpContext);
+            
+            // Find or create a generic document type
+            var documentType = await context.DocumentTypes
+                .FirstOrDefaultAsync(dt => dt.WorkspaceId == workspaceId && dt.Name == "General");
+            
+            if (documentType == null)
+            {
+                documentType = new DocumentType
+                {
+                    Id = Guid.NewGuid(),
+                    WorkspaceId = workspaceId.Value,
+                    Name = "General",
+                    MaxSizeMB = 50,
+                    AllowedExtensions = new List<string> { ".pdf", ".doc", ".docx", ".jpg", ".png", ".jpeg", ".gif", ".bmp", ".txt" },
+                    DefaultApproverRole = UserRole.ProjectManager,
+                    CreatedAt = DateTime.UtcNow
+                };
+                context.DocumentTypes.Add(documentType);
+                await context.SaveChangesAsync();
+            }
+            
+            // Create a generic requirement for this milestone
+            requirement = new DocumentRequirement
+            {
+                Id = Guid.NewGuid(),
+                MilestoneId = milestone.Id,
+                DocumentTypeId = documentType.Id,
+                Required = false
+            };
+            context.DocumentRequirements.Add(requirement);
+            await context.SaveChangesAsync(); // Save to get the ID
+        }
+
+        // Create document record (without actual file storage for now)
+        var document = new Document
+        {
+            Id = Guid.NewGuid(),
+            RequirementId = requirement.Id,
+            FileName = request.FileName,
+            FileSizeBytes = request.FileSize,
+            UploadedBy = userId.Value,
+            UploadedAt = DateTime.UtcNow,
+            Status = DocumentStatus.Pending,
+            Version = 1,
+            StorageUrl = $"temp/{Guid.NewGuid()}/{request.FileName}" // Placeholder URL
+        };
+
+        context.Documents.Add(document);
+
+        // Add timeline event
+        var timelineEvent = new TimelineEvent
+        {
+            Id = Guid.NewGuid(),
+            ProjectId = milestone.ProjectId,
+            MilestoneId = milestone.Id,
+            Type = TimelineEventType.DocumentUploaded,
+            Message = $"Document uploaded: {request.FileName} ({request.DocumentType})",
+            CreatedBy = userId.Value,
+            CreatedAt = DateTime.UtcNow
+        };
+        context.TimelineEvents.Add(timelineEvent);
+
+        await context.SaveChangesAsync();
+
+        logger.LogInformation("Document {DocumentId} added to milestone {MilestoneId}", document.Id, milestone.Id);
+        return Results.Ok(new { id = document.Id, message = "Document uploaded successfully" });
     }
 
     private static Guid? GetWorkspaceId(HttpContext context)

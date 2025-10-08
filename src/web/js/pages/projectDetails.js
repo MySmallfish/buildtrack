@@ -12,6 +12,7 @@ export async function renderProjectDetails(container, projectId) {
                     <p id="project-code" class="text-muted"></p>
                 </div>
                 <div class="project-actions">
+                    <button class="btn" id="edit-project-btn">Edit Project</button>
                     <button class="btn" id="add-milestone-btn">+ Add Milestone</button>
                     <button class="btn btn-primary" id="add-comment-btn">+ Comment</button>
                 </div>
@@ -33,6 +34,14 @@ export async function renderProjectDetails(container, projectId) {
     // Setup navigation
     document.getElementById('back-btn')?.addEventListener('click', () => {
         window.location.hash = '#/';
+    });
+
+    // Setup edit project button
+    document.getElementById('edit-project-btn')?.addEventListener('click', async () => {
+        if (window.currentProject) {
+            const { showEditProjectModal } = await import('../components/editProjectModal.js');
+            await showEditProjectModal(window.currentProject);
+        }
     });
 
     // Setup add milestone button
@@ -110,6 +119,12 @@ function renderOverviewTab(container, project) {
     const completedCount = project.milestones?.filter(m => m.status === 'Completed').length || 0;
     const totalCount = project.milestones?.length || 0;
     const progressPercent = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
+    
+    const inProgressCount = project.milestones?.filter(m => m.status === 'InProgress').length || 0;
+    const blockedCount = project.milestones?.filter(m => m.blockedFlag).length || 0;
+    const overdueCount = project.milestones?.filter(m => {
+        return m.status !== 'Completed' && new Date(m.dueDate) < new Date();
+    }).length || 0;
 
     container.innerHTML = `
         <div class="overview-grid">
@@ -136,6 +151,12 @@ function renderOverviewTab(container, project) {
                         <span class="info-label">Location:</span>
                         <span>${escapeHtml(project.location || 'N/A')}</span>
                     </div>
+                    ${project.tags && project.tags.length > 0 ? `
+                        <div class="info-item">
+                            <span class="info-label">Tags:</span>
+                            <span>${project.tags.map(tag => `<span class="tag">${escapeHtml(tag)}</span>`).join(' ')}</span>
+                        </div>
+                    ` : ''}
                 </div>
             </div>
 
@@ -146,6 +167,20 @@ function renderOverviewTab(container, project) {
                         <span class="progress-percent">${progressPercent}%</span>
                     </div>
                     <p class="progress-label">${completedCount} of ${totalCount} milestones completed</p>
+                </div>
+                <div class="stats-grid">
+                    <div class="stat-item">
+                        <span class="stat-value">${inProgressCount}</span>
+                        <span class="stat-label">In Progress</span>
+                    </div>
+                    <div class="stat-item ${overdueCount > 0 ? 'stat-warning' : ''}">
+                        <span class="stat-value">${overdueCount}</span>
+                        <span class="stat-label">Overdue</span>
+                    </div>
+                    <div class="stat-item ${blockedCount > 0 ? 'stat-danger' : ''}">
+                        <span class="stat-value">${blockedCount}</span>
+                        <span class="stat-label">Blocked</span>
+                    </div>
                 </div>
             </div>
 
@@ -166,7 +201,7 @@ function renderOverviewTab(container, project) {
                 <div class="timeline-compact">
                     ${project.timeline?.slice(0, 5).map(event => `
                         <div class="timeline-item-compact">
-                            <span class="timeline-icon">•</span>
+                            <span class="timeline-icon">${getEventIcon(event.type)}</span>
                             <div class="timeline-content-compact">
                                 <p>${escapeHtml(event.message)}</p>
                                 <span class="text-muted">${escapeHtml(event.createdBy)} • ${formatRelativeTime(event.createdAt)}</span>
@@ -174,6 +209,9 @@ function renderOverviewTab(container, project) {
                         </div>
                     `).join('') || '<p class="text-muted">No activity yet</p>'}
                 </div>
+                ${project.timeline && project.timeline.length > 5 ? `
+                    <button class="btn btn-sm" onclick="document.querySelector('[data-tab=\"timeline\"]').click()">View All Activity</button>
+                ` : ''}
             </div>
         </div>
     `;
@@ -181,62 +219,122 @@ function renderOverviewTab(container, project) {
 
 function renderMilestonesTab(container, project) {
     const milestones = project.milestones || [];
+    
+    // Sort milestones by due date
+    const sortedMilestones = [...milestones].sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate));
 
     container.innerHTML = `
-        <div class="milestones-list">
-            ${milestones.length === 0 ? '<p class="text-muted">No milestones</p>' : ''}
-            ${milestones.map(milestone => `
-                <div class="milestone-card" data-milestone-id="${milestone.id}">
-                    <div class="milestone-header">
-                        <h4>${escapeHtml(milestone.name)}</h4>
-                        <span class="status-badge status-${milestone.status.toLowerCase()}">${milestone.status}</span>
-                    </div>
-                    <div class="milestone-body">
-                        <div class="milestone-info">
-                            <span class="info-label">Type:</span> ${escapeHtml(milestone.type)}
+        <div class="milestones-container">
+            <div class="milestones-header">
+                <h3>Milestones (${milestones.length})</h3>
+                <button class="btn btn-primary" id="add-milestone-btn-tab">+ Add Milestone</button>
+            </div>
+            <div class="milestones-list">
+                ${milestones.length === 0 ? '<p class="text-muted">No milestones yet. Click "+ Add Milestone" to create one.</p>' : ''}
+                ${sortedMilestones.map(milestone => {
+                    const isOverdue = milestone.status !== 'Completed' && new Date(milestone.dueDate) < new Date();
+                    const daysUntilDue = Math.ceil((new Date(milestone.dueDate) - new Date()) / (1000 * 60 * 60 * 24));
+                    
+                    return `
+                    <div class="milestone-card ${isOverdue ? 'milestone-overdue' : ''}" data-milestone-id="${milestone.id}">
+                        <div class="milestone-header">
+                            <div class="milestone-title-section">
+                                <h4>${escapeHtml(milestone.name)}</h4>
+                                <span class="milestone-type">${escapeHtml(milestone.type)}</span>
+                            </div>
+                            <span class="status-badge status-${milestone.status.toLowerCase()}">${milestone.status}</span>
                         </div>
-                        <div class="milestone-info">
-                            <span class="info-label">Due Date:</span> ${new Date(milestone.dueDate).toLocaleDateString()}
+                        <div class="milestone-body">
+                            <div class="milestone-info-grid">
+                                <div class="milestone-info">
+                                    <span class="info-label">📅 Due Date:</span>
+                                    <span>${new Date(milestone.dueDate).toLocaleDateString()}
+                                        ${isOverdue ? '<span class="text-danger"> (Overdue)</span>' : 
+                                          daysUntilDue >= 0 && daysUntilDue <= 7 ? `<span class="text-warning"> (${daysUntilDue}d left)</span>` : ''}
+                                    </span>
+                                </div>
+                                <div class="milestone-info">
+                                    <span class="info-label">📋 Requirements:</span>
+                                    <span>${milestone.requirementsCompleted}/${milestone.requirementsTotal} completed</span>
+                                </div>
+                                ${milestone.completedAt ? `
+                                    <div class="milestone-info">
+                                        <span class="info-label">✅ Completed:</span>
+                                        <span>${new Date(milestone.completedAt).toLocaleDateString()}</span>
+                                    </div>
+                                ` : ''}
+                            </div>
+                            <div class="milestone-badges">
+                                ${milestone.blockedFlag ? '<span class="badge badge-warning">🚫 Blocked</span>' : ''}
+                                ${milestone.failedCheckFlag ? '<span class="badge badge-danger">❌ Failed Check</span>' : ''}
+                                ${milestone.assignedUserIds && milestone.assignedUserIds.length > 0 ? 
+                                    `<span class="badge badge-info">👥 ${milestone.assignedUserIds.length} assigned</span>` : ''}
+                            </div>
                         </div>
-                        <div class="milestone-info">
-                            <span class="info-label">Requirements:</span> ${milestone.requirementsCompleted}/${milestone.requirementsTotal}
+                        <div class="milestone-actions">
+                            <button class="btn btn-sm btn-primary" onclick="window.addMilestoneUpdate('${milestone.id}', '${escapeHtml(milestone.name).replace(/'/g, "\\'")}', '${milestone.status}')">+ Add Update</button>
+                            <button class="btn btn-sm" onclick="window.viewMilestoneDetails('${milestone.id}')">View Details</button>
                         </div>
-                        ${milestone.blockedFlag ? '<span class="badge badge-warning">Blocked</span>' : ''}
-                        ${milestone.failedCheckFlag ? '<span class="badge badge-danger">Failed Check</span>' : ''}
                     </div>
-                    <div class="milestone-actions">
-                        <button class="btn btn-sm btn-primary" onclick="window.addMilestoneUpdate('${milestone.id}', '${escapeHtml(milestone.name)}', '${milestone.status}')">+ Add Update</button>
-                        <button class="btn btn-sm" onclick="window.viewMilestone('${milestone.id}')">View Details</button>
-                    </div>
-                </div>
-            `).join('')}
+                `}).join('')}
+            </div>
         </div>
     `;
+    
+    // Add event listener for the add milestone button in the tab
+    document.getElementById('add-milestone-btn-tab')?.addEventListener('click', async () => {
+        if (window.currentProject) {
+            const { showAddMilestoneModal } = await import('../components/addMilestoneModal.js');
+            await showAddMilestoneModal(window.currentProject);
+        }
+    });
 }
 
 function renderTimelineTab(container, project) {
     const timeline = project.timeline || [];
+    
+    // Group timeline events by date
+    const groupedTimeline = groupTimelineByDate(timeline);
 
     container.innerHTML = `
         <div class="timeline-view">
             <div class="timeline-header">
-                <button class="btn btn-primary" id="add-timeline-event">+ Add Event</button>
+                <div class="timeline-title">
+                    <h3>Full Project Timeline</h3>
+                    <p class="text-muted">${timeline.length} events</p>
+                </div>
+                <div class="timeline-actions">
+                    <select id="timeline-filter" class="form-control form-control-sm">
+                        <option value="all">All Events</option>
+                        <option value="Comment">Comments</option>
+                        <option value="MilestoneStatusChanged">Milestone Changes</option>
+                        <option value="DocumentUploaded">Documents</option>
+                        <option value="DueDateChanged">Due Date Changes</option>
+                    </select>
+                    <button class="btn btn-primary" id="add-timeline-event">+ Add Comment</button>
+                </div>
             </div>
-            <div class="timeline">
-                ${timeline.length === 0 ? '<p class="text-muted">No timeline events</p>' : ''}
-                ${timeline.map(event => `
-                    <div class="timeline-event">
-                        <div class="timeline-icon">
-                            ${getEventIcon(event.type)}
-                        </div>
-                        <div class="timeline-content">
-                            <div class="timeline-message">${escapeHtml(event.message)}</div>
-                            <div class="timeline-meta">
-                                <span>${escapeHtml(event.createdBy)}</span>
-                                <span>•</span>
-                                <span>${formatRelativeTime(event.createdAt)}</span>
+            <div class="timeline" id="timeline-container">
+                ${timeline.length === 0 ? '<div class="empty-state"><p class="text-muted">No timeline events yet</p></div>' : ''}
+                ${Object.entries(groupedTimeline).map(([date, events]) => `
+                    <div class="timeline-date-group">
+                        <div class="timeline-date-header">${date}</div>
+                        ${events.map(event => `
+                            <div class="timeline-event" data-event-type="${event.type}">
+                                <div class="timeline-icon ${getEventClass(event.type)}">
+                                    ${getEventIcon(event.type)}
+                                </div>
+                                <div class="timeline-content">
+                                    <div class="timeline-message">${escapeHtml(event.message)}</div>
+                                    <div class="timeline-meta">
+                                        <span class="timeline-author">${escapeHtml(event.createdBy)}</span>
+                                        <span>•</span>
+                                        <span class="timeline-time">${formatTime(event.createdAt)}</span>
+                                        <span class="timeline-type-badge">${getEventTypeName(event.type)}</span>
+                                    </div>
+                                </div>
                             </div>
-                        </div>
+                        `).join('')}
                     </div>
                 `).join('')}
             </div>
@@ -246,12 +344,107 @@ function renderTimelineTab(container, project) {
     document.getElementById('add-timeline-event')?.addEventListener('click', () => {
         showAddCommentModal(project.id);
     });
+    
+    // Add filter functionality
+    document.getElementById('timeline-filter')?.addEventListener('change', (e) => {
+        const filterValue = e.target.value;
+        const events = document.querySelectorAll('.timeline-event');
+        
+        events.forEach(event => {
+            if (filterValue === 'all' || event.dataset.eventType === filterValue) {
+                event.style.display = '';
+            } else {
+                event.style.display = 'none';
+            }
+        });
+        
+        // Hide empty date groups
+        document.querySelectorAll('.timeline-date-group').forEach(group => {
+            const visibleEvents = group.querySelectorAll('.timeline-event:not([style*="display: none"])');
+            group.style.display = visibleEvents.length > 0 ? '' : 'none';
+        });
+    });
 }
 
 function renderDocumentsTab(container, project) {
+    const milestones = project.milestones || [];
+    
+    // Calculate document statistics
+    const totalRequirements = milestones.reduce((sum, m) => sum + m.requirementsTotal, 0);
+    const completedRequirements = milestones.reduce((sum, m) => sum + m.requirementsCompleted, 0);
+    const pendingRequirements = totalRequirements - completedRequirements;
+    
     container.innerHTML = `
         <div class="documents-view">
-            <p class="text-muted">Document management coming soon</p>
+            <div class="documents-header">
+                <div class="documents-stats">
+                    <div class="stat-card">
+                        <span class="stat-value">${totalRequirements}</span>
+                        <span class="stat-label">Total Requirements</span>
+                    </div>
+                    <div class="stat-card stat-success">
+                        <span class="stat-value">${completedRequirements}</span>
+                        <span class="stat-label">Completed</span>
+                    </div>
+                    <div class="stat-card stat-warning">
+                        <span class="stat-value">${pendingRequirements}</span>
+                        <span class="stat-label">Pending</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="documents-by-milestone">
+                <h3>Documents by Milestone</h3>
+                ${milestones.length === 0 ? '<p class="text-muted">No milestones with document requirements</p>' : ''}
+                ${milestones.map(milestone => {
+                    if (milestone.requirementsTotal === 0) return '';
+                    
+                    const progressPercent = milestone.requirementsTotal > 0 
+                        ? Math.round((milestone.requirementsCompleted / milestone.requirementsTotal) * 100) 
+                        : 0;
+                    
+                    return `
+                        <div class="milestone-documents-card">
+                            <div class="milestone-documents-header">
+                                <div class="milestone-info-section">
+                                    <h4>${escapeHtml(milestone.name)}</h4>
+                                    <span class="milestone-type-badge">${escapeHtml(milestone.type)}</span>
+                                </div>
+                                <span class="status-badge status-${milestone.status.toLowerCase()}">${milestone.status}</span>
+                            </div>
+                            <div class="milestone-documents-body">
+                                <div class="document-progress">
+                                    <div class="progress-bar">
+                                        <div class="progress-fill" style="width: ${progressPercent}%"></div>
+                                    </div>
+                                    <span class="progress-text">${milestone.requirementsCompleted} of ${milestone.requirementsTotal} requirements completed</span>
+                                </div>
+                                <div class="document-actions">
+                                    <button class="btn btn-sm btn-primary" onclick="window.uploadDocument('${milestone.id}')">
+                                        📤 Upload Document
+                                    </button>
+                                    <button class="btn btn-sm" onclick="window.viewMilestoneDetails('${milestone.id}')">
+                                        View Details
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }).join('')}
+            </div>
+            
+            <div class="documents-info-section">
+                <h3>Document Management</h3>
+                <p class="text-muted">
+                    Documents are organized by milestone requirements. Each milestone may have specific document types that need to be submitted and approved.
+                </p>
+                <ul class="info-list">
+                    <li>Upload documents directly to milestone requirements</li>
+                    <li>Track approval status for each document</li>
+                    <li>View document history in the timeline</li>
+                    <li>Receive notifications when documents are approved or rejected</li>
+                </ul>
+            </div>
         </div>
     `;
 }
@@ -334,9 +527,75 @@ function escapeHtml(text) {
     return div.innerHTML;
 }
 
+// Helper functions for timeline
+function groupTimelineByDate(timeline) {
+    const groups = {};
+    
+    timeline.forEach(event => {
+        const date = new Date(event.createdAt);
+        const dateKey = formatDateKey(date);
+        
+        if (!groups[dateKey]) {
+            groups[dateKey] = [];
+        }
+        groups[dateKey].push(event);
+    });
+    
+    return groups;
+}
+
+function formatDateKey(date) {
+    const today = new Date();
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+    
+    if (date.toDateString() === today.toDateString()) {
+        return 'Today';
+    } else if (date.toDateString() === yesterday.toDateString()) {
+        return 'Yesterday';
+    } else {
+        return date.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+    }
+}
+
+function formatTime(dateString) {
+    const date = new Date(dateString);
+    return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+}
+
+function getEventClass(type) {
+    const classes = {
+        'ProjectCreated': 'event-success',
+        'MilestoneStatusChanged': 'event-info',
+        'DocumentUploaded': 'event-primary',
+        'DocumentApproved': 'event-success',
+        'DocumentRejected': 'event-danger',
+        'DueDateChanged': 'event-warning',
+        'Comment': 'event-default'
+    };
+    return classes[type] || 'event-default';
+}
+
+function getEventTypeName(type) {
+    const names = {
+        'ProjectCreated': 'Project',
+        'MilestoneStatusChanged': 'Milestone',
+        'DocumentUploaded': 'Document',
+        'DocumentApproved': 'Approval',
+        'DocumentRejected': 'Rejection',
+        'DueDateChanged': 'Schedule',
+        'Comment': 'Comment'
+    };
+    return names[type] || type;
+}
+
 // Export for global access
-window.viewMilestone = (milestoneId) => {
-    alert(`Milestone details for ${milestoneId} - Coming soon`);
+window.viewMilestoneDetails = async (milestoneId) => {
+    const milestone = window.currentProject?.milestones?.find(m => m.id === milestoneId);
+    if (milestone) {
+        const { showMilestoneDetailsModal } = await import('../components/milestoneDetailsModal.js');
+        await showMilestoneDetailsModal(milestone, window.currentProject);
+    }
 };
 
 window.addMilestoneUpdate = async (milestoneId, milestoneName, status) => {
@@ -347,4 +606,12 @@ window.addMilestoneUpdate = async (milestoneId, milestoneName, status) => {
         status: status
     };
     await showMilestoneUpdateModal(milestone, window.currentProject?.id);
+};
+
+window.uploadDocument = async (milestoneId) => {
+    const milestone = window.currentProject?.milestones?.find(m => m.id === milestoneId);
+    if (milestone) {
+        const { showMilestoneUpdateModal } = await import('../components/milestoneUpdateModal.js');
+        await showMilestoneUpdateModal(milestone, window.currentProject?.id);
+    }
 };

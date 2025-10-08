@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <title>Project Grid Demo</title>
+  <style>
+    body {
+      margin: 20px;
+      background: #0b0c0f;
+      color: #e8e8ef;
+      font: 14px system-ui;
+    }
+    h2 {
+      margin-bottom: 20px;
+    }
+    .controls {
+      margin: 20px 0;
+      display: flex;
+      gap: 12px;
+    }
+    button {
+      padding: 8px 16px;
+      background: #2563eb;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+    }
+    button:hover {
+      background: #1d4ed8;
+    }
+  </style>
+  <script type="module" src="./project-grid.js"></script>
+</head>
+<body>
+  <h2>Projects Grid (Demo)</h2>
+  
+  <div class="controls">
+    <button id="toggle-legend">Toggle Legend</button>
+    <button id="add-project">Add Project</button>
+  </div>
+
+  <project-grid id="grid"></project-grid>
+
+  <script type="module">
+    const grid = document.getElementById('grid');
+
+    const data = {
+      columns: [
+        { id:'m1', name:'Design' },
+        { id:'m2', name:'Permitting' },
+        { id:'m3', name:'Site Prep' },
+        { id:'m4', name:'Foundation' },
+        { id:'m5', name:'Inspection' },
+        { id:'m6', name:'Handover' }
+      ],
+      rows: [
+        {
+          projectId:'p1', projectName:'Midtown Complex',
+          meta:{ owner:'Alex PM' },
+          cells:{
+            m1:{ status:'NOT_STARTED' },
+            m2:{ status:'IN_PROGRESS', skill:'Architect' },
+            m3:{ status:'RISK', skill:'Constructor' },
+            m4:{ status:'DONE', late:true },
+            m5:{ status:'NOT_STARTED' },
+            m6:{ status:'DONE' }
+          }
+        },
+        {
+          projectId:'p2', projectName:'Harbor Tower',
+          meta:{ owner:'Priya PM' },
+          cells:{
+            m1:{ status:'FAILED', skill:'Engineer', tooltip:'Failed structural check' },
+            m2:{ status:'IN_PROGRESS', skill:'Inspector' },
+            m3:{ status:'RISK', skill:'Architect' },
+            m4:{ status:'OVERDUE', skill:'Constructor' },
+            m5:{ status:'IN_PROGRESS', skill:'MEP Eng.' },
+            m6:{ status:'NOT_STARTED' }
+          }
+        },
+        {
+          projectId:'p3', projectName:'West Lofts',
+          meta:{ owner:'Sam PM' },
+          cells:{
+            m1:{ status:'DONE' },
+            m2:{ status:'NOT_STARTED' },
+            m3:{ status:'FAILED', skill:'Inspector' },
+            m4:{ status:'NOT_STARTED' },
+            m5:{ status:'DONE' },
+            m6:{ status:'NOT_STARTED' }
+          }
+        }
+      ]
+    };
+
+    // Load data into the component
+    grid.data = data;
+
+    // Listen for clicks (hook to open your drawer)
+    grid.addEventListener('cell-click', (e) => {
+      const { projectName, milestoneName, cell } = e.detail;
+      console.log('cell-click', e.detail);
+      alert(`${projectName} → ${milestoneName}\nStatus: ${cell.status}${cell.late ? ' (late)' : ''}${cell.skill ? '\nSkill: ' + cell.skill : ''}`);
+    });
+
+    // Toggle legend
+    document.getElementById('toggle-legend').addEventListener('click', () => {
+      const current = grid.options;
+      grid.options = { showLegend: !current.showLegend };
+    });
+
+    // Add project dynamically
+    let projectCount = 3;
+    document.getElementById('add-project').addEventListener('click', () => {
+      projectCount++;
+      const currentData = grid.data;
+      const newRow = {
+        projectId: `p${projectCount}`,
+        projectName: `Project ${projectCount}`,
+        meta: { owner: 'New PM' },
+        cells: {
+          m1: { status: 'NOT_STARTED' },
+          m2: { status: 'IN_PROGRESS', skill: 'Architect' },
+          m3: { status: 'NOT_STARTED' },
+          m4: { status: 'NOT_STARTED' },
+          m5: { status: 'NOT_STARTED' },
+          m6: { status: 'NOT_STARTED' }
+        }
+      };
+      grid.data = {
+        ...currentData,
+        rows: [...currentData.rows, newRow]
+      };
+    });
+  </script>
+</body>
+</html>

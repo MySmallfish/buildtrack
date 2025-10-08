@@ -34,8 +34,14 @@ export async function renderGridView(container) {
         loadGrid({ status: e.target.value });
     });
 
-    // Load initial data
-    await loadGrid({});
+    // Load initial data - show only Active projects by default
+    await loadGrid({ status: 'Active' });
+    
+    // Listen for project created event to refresh grid
+    window.addEventListener('project-created', async () => {
+        const statusFilter = document.getElementById('status-filter');
+        await loadGrid({ status: statusFilter?.value || 'Active' });
+    });
 }
 
 async function loadGrid({ status = null } = {}) {
@@ -104,7 +110,7 @@ function renderProjectsTable(projects, container) {
         const row = document.querySelector(`[data-project-id="${project.id}"]`);
         if (row) {
             row.addEventListener('click', (e) => {
-                if (!e.target.closest('button')) {
+                if (!e.target.closest('button') && !e.target.closest('.dropdown')) {
                     openProjectDetails(project.id);
                 }
             });
@@ -117,6 +123,45 @@ function renderProjectsTable(projects, container) {
                 openProjectDetails(project.id);
             });
         }
+
+        // Setup dropdown menu
+        const actionsBtn = document.getElementById(`actions-${project.id}`);
+        const menu = document.getElementById(`menu-${project.id}`);
+        
+        if (actionsBtn && menu) {
+            actionsBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                // Close all other menus
+                document.querySelectorAll('.dropdown-menu.show').forEach(m => {
+                    if (m !== menu) m.classList.remove('show');
+                });
+                menu.classList.toggle('show');
+            });
+
+            // Handle menu actions
+            menu.querySelectorAll('[data-action]').forEach(btn => {
+                btn.addEventListener('click', async (e) => {
+                    e.stopPropagation();
+                    menu.classList.remove('show');
+                    
+                    const action = btn.dataset.action;
+                    const projectId = btn.dataset.projectId;
+                    
+                    if (action === 'edit') {
+                        await showEditProjectModal(project);
+                    } else if (action === 'archive') {
+                        await showArchiveConfirmation(project);
+                    }
+                });
+            });
+        }
+    });
+
+    // Close dropdowns when clicking outside
+    document.addEventListener('click', () => {
+        document.querySelectorAll('.dropdown-menu.show').forEach(m => {
+            m.classList.remove('show');
+        });
     });
 }
 
@@ -147,16 +192,31 @@ function renderProjectRow(project) {
             <td><span class="status-badge ${statusClass}">${project.status}</span></td>
             <td>${nextDueFormatted}</td>
             <td>
-                <button class="btn-icon" id="view-${project.id}" title="View Details">
-                    <span>👁️</span>
-                </button>
+                <div class="action-buttons">
+                    <button class="btn-icon" id="view-${project.id}" title="View Details">
+                        <span>👁️</span>
+                    </button>
+                    <div class="dropdown">
+                        <button class="btn-icon" id="actions-${project.id}" title="Actions">
+                            <span>⋮</span>
+                        </button>
+                        <div class="dropdown-menu" id="menu-${project.id}">
+                            <button class="dropdown-item" data-action="edit" data-project-id="${project.id}">
+                                <span>✏️</span> Edit
+                            </button>
+                            <button class="dropdown-item danger" data-action="archive" data-project-id="${project.id}">
+                                <span>📦</span> Archive
+                            </button>
+                        </div>
+                    </div>
+                </div>
             </td>
         </tr>
     `;
 }
 function openProjectDetails(projectId) {
     // Navigate to project details page
-    window.location.hash = `#/projects/${projectId}`;
+    window.location.hash = `#/project/${projectId}`;
 }
 
 async function showNewProjectModal() {
@@ -166,6 +226,82 @@ async function showNewProjectModal() {
 
 // Export for global access
 window.showNewProjectModal = showNewProjectModal;
+
+async function showEditProjectModal(project) {
+    const { showEditProjectModal: showModal } = await import('../components/editProjectModal.js');
+    await showModal(project);
+}
+
+async function showArchiveConfirmation(project) {
+    const modal = document.createElement('div');
+    modal.className = 'modal-overlay';
+    modal.innerHTML = `
+        <div class="modal modal-small">
+            <div class="modal-header">
+                <h3>Archive Project</h3>
+                <button class="btn-icon" id="close-modal">✕</button>
+            </div>
+            <div class="modal-body">
+                <p>Are you sure you want to archive <strong>${escapeHtml(project.name)}</strong>?</p>
+                <p class="text-muted">Archived projects can be restored later from the Archived Projects view.</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn" id="cancel-btn">Cancel</button>
+                <button type="button" class="btn btn-danger" id="archive-btn">Archive Project</button>
+            </div>
+        </div>
+    `;
+
+    document.body.appendChild(modal);
+
+    const closeModal = () => {
+        document.body.removeChild(modal);
+    };
+
+    document.getElementById('close-modal').addEventListener('click', closeModal);
+    document.getElementById('cancel-btn').addEventListener('click', closeModal);
+    
+    document.getElementById('archive-btn').addEventListener('click', async () => {
+        try {
+            const archiveBtn = document.getElementById('archive-btn');
+            archiveBtn.disabled = true;
+            archiveBtn.textContent = 'Archiving...';
+            
+            // Call API to archive project
+            const { archiveProject } = await import('../services/api.js');
+            await archiveProject(project.id);
+            
+            closeModal();
+            showToast('Project archived successfully', 'success');
+            
+            // Reload the grid to remove archived project
+            await loadGrid({});
+        } catch (error) {
+            showToast('Failed to archive project: ' + error.message, 'error');
+            const archiveBtn = document.getElementById('archive-btn');
+            archiveBtn.disabled = false;
+            archiveBtn.textContent = 'Archive Project';
+        }
+    });
+}
+
+function showToast(message, type = 'info') {
+    const toast = document.createElement('div');
+    toast.className = `toast toast-${type}`;
+    toast.textContent = message;
+    document.body.appendChild(toast);
+    
+    setTimeout(() => {
+        toast.classList.add('show');
+    }, 100);
+    
+    setTimeout(() => {
+        toast.classList.remove('show');
+        setTimeout(() => {
+            document.body.removeChild(toast);
+        }, 300);
+    }, 3000);
+}
 
 function escapeHtml(text) {
     const div = document.createElement('div');

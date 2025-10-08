@@ -23,10 +23,11 @@ export async function showMilestoneUpdateModal(milestone, projectId) {
                         <label for="update-status">Change Status (Optional)</label>
                         <select id="update-status" name="status" class="form-control">
                             <option value="">Keep current status (${milestone.status})</option>
+                            <option value="NotStarted">Not Started</option>
                             <option value="InProgress">In Progress</option>
+                            <option value="PendingReview">Pending Review</option>
                             <option value="Completed">Completed</option>
-                            <option value="Failed">Failed</option>
-                            <option value="OnHold">On Hold</option>
+                            <option value="Blocked">Blocked</option>
                         </select>
                         <small>Leave empty to keep the current status</small>
                     </div>

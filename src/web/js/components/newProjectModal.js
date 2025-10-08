@@ -191,11 +191,12 @@ export async function showNewProjectModal() {
             // Show success message
             showToast('Project created successfully!', 'success');
             
-            // Navigate to project details or reload grid
+            // Emit event for grid to refresh
+            window.dispatchEvent(new CustomEvent('project-created', { detail: result }));
+            
+            // Navigate to project details
             if (result.id) {
-                window.location.hash = `#/projects/${result.id}`;
-            } else {
-                window.location.reload();
+                window.location.hash = `#/project/${result.id}`;
             }
         } catch (error) {
             errorDiv.textContent = error.message;

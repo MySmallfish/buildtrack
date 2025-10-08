@@ -231,14 +231,38 @@ function renderMainView(snapshot) {
 
     // Setup search
     setupSearch();
+    
+    // Setup hash change listener for project details navigation
+    setupHashRouting();
 
-    // Render initial page
-    renderPage('overview');
+    // Render initial page based on hash or default to overview
+    handleHashChange();
+}
+
+function setupHashRouting() {
+    // Remove existing listener if any
+    window.removeEventListener('hashchange', handleHashChange);
+    // Add hash change listener
+    window.addEventListener('hashchange', handleHashChange);
+}
+
+function handleHashChange() {
+    const hash = window.location.hash;
+    
+    if (hash.startsWith('#/project/')) {
+        const projectId = hash.replace('#/project/', '');
+        renderPage(`project-${projectId}`);
+    } else if (hash === '#/' || hash === '') {
+        renderPage('overview');
+    } else {
+        // Handle other hash routes if needed
+        renderPage('overview');
+    }
 }
 
 // Setup search functionality
 function setupSearch() {
-    const searchInput = document.getElementById('sidebar-search');
+    const searchInput = document.getElementById('global-search');
     if (!searchInput) return;
 
     searchInput.addEventListener('input', (e) => {
@@ -302,23 +326,23 @@ async function renderPage(route) {
     
     switch (route) {
         case 'overview':
+            const { renderOverviewPage } = await import('./pages/overviewPage.js');
+            await renderOverviewPage(container);
+            break;
+        
         case 'projectsActive':
             const { renderGridView } = await import('./pages/gridView.js');
             await renderGridView(container);
             break;
         
+        case 'projectsArchived':
+            const { renderArchivedProjectsPage } = await import('./pages/archivedProjectsPage.js');
+            await renderArchivedProjectsPage(container);
+            break;
+        
         case 'documents':
-            container.innerHTML = `
-                <div class="grid-container">
-                    <div class="grid-header">
-                        <h1>Documents</h1>
-                    </div>
-                    <div class="empty-state">
-                        <h3>Documents Inbox</h3>
-                        <p>Document management coming soon</p>
-                    </div>
-                </div>
-            `;
+            const { renderDocumentsPage } = await import('./pages/documentsPage.js');
+            await renderDocumentsPage(container);
             break;
 
         case 'teamMembers':
