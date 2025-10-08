@@ -37,8 +37,9 @@ services:
       - key: EMAIL__FromName
         value: BuildTrack
 
-  - type: static_site
+  - type: static
     name: buildtrack-web
+    env: static
     branch: main
     rootDir: src/web
     buildCommand: ""
