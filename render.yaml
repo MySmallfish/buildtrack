@@ -37,12 +37,11 @@ services:
       - key: EMAIL__FromName
         value: BuildTrack
 
-staticSites:
-  - name: buildtrack-web
-    branch: main
-    rootDir: src/web
-    buildCommand: ""
-    publishPath: .
+  - type: web
+    name: buildtrack-web
+    env: static
+    buildCommand: echo "No build needed"
+    staticPublishPath: src/web
     autoDeploy: true
     envVars:
       - key: API_BASE_URL
