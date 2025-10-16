@@ -2,7 +2,7 @@ services:
   - type: web
     name: buildtrack-api
     env: docker
-    plan: starter
+    plan: free
     rootDir: src/api/BuildTrack.Api
     dockerfilePath: src/api/BuildTrack.Api/Dockerfile
     healthCheckPath: /health
