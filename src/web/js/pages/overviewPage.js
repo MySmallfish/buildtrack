@@ -113,63 +113,21 @@ async function loadProjectsGrid() {
 
 /**
  * Transform API projects data to grid format
- * Each project gets its own set of milestone columns
+ * Each project row contains an array of milestones
  * @param {Array} projects - Projects from API
  * @returns {Object} Grid data structure
  */
 function transformToGridData(projects) {
-    // Find the maximum number of milestones across all projects
-    let maxMilestones = 0;
-    projects.forEach(project => {
-        if (project.milestones && Array.isArray(project.milestones)) {
-            maxMilestones = Math.max(maxMilestones, project.milestones.length);
-        }
-    });
-
-    // Create generic column headers based on max milestones
-    const columns = [];
-    for (let i = 0; i < maxMilestones; i++) {
-        columns.push({
-            id: `milestone-${i}`,
-            name: '', // Empty name - milestone names shown in cells
-            order: i
-        });
-    }
-
-    // If no milestones found at all, show message
-    if (maxMilestones === 0) {
-        console.warn('No milestones found in any project');
-        return { columns: [], rows: [] };
-    }
-    
-    console.log(`Grid will have ${maxMilestones} columns for milestones`);
-
-    // Transform projects to rows
+    // Transform projects to rows with milestones array
     const rows = projects.map(project => {
-        const cells = {};
-        
         // Sort project milestones by order or index
         const sortedMilestones = (project.milestones || [])
-            .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
-
-        // Fill cells with actual milestones
-        sortedMilestones.forEach((milestone, index) => {
-            const colId = `milestone-${index}`;
-            cells[colId] = {
+            .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+            .map(milestone => ({
                 ...transformMilestoneToCell(milestone),
-                milestoneName: milestone.name || milestone.type || `Milestone ${index + 1}`,
-                milestoneId: milestone.id
-            };
-        });
-
-        // Fill remaining columns with empty cells
-        for (let i = sortedMilestones.length; i < maxMilestones; i++) {
-            cells[`milestone-${i}`] = { 
-                status: 'NOT_STARTED',
-                milestoneName: '-',
-                isEmpty: true
-            };
-        }
+                id: milestone.id,
+                name: milestone.name || milestone.type || 'Unnamed'
+            }));
 
         return {
             projectId: project.id,
@@ -180,13 +138,13 @@ function transformToGridData(projects) {
                 status: project.status || 'Active',
                 milestoneCount: sortedMilestones.length
             },
-            cells
+            milestones: sortedMilestones
         };
     });
     
     console.log('Rows created:', rows);
 
-    return { columns, rows };
+    return { rows };
 }
 
 /**
@@ -367,7 +325,7 @@ async function showMilestoneDrawer({ projectId, projectName, milestoneId, milest
                 DueDate: null,
                 Status: statusMap[newStatus],  // Send as integer
                 AssignedUserIds: null,
-                BlockedFlag: null,
+                BlockedFlag: newStatus === 'Blocked' ? true : null,
                 FailedCheckFlag: null,
                 Notes: comment || null
             };

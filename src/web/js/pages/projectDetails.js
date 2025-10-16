@@ -52,6 +52,13 @@ export async function renderProjectDetails(container, projectId) {
         }
     });
 
+    // Setup add comment button
+    document.getElementById('add-comment-btn')?.addEventListener('click', () => {
+        if (window.currentProject) {
+            showAddCommentModal(window.currentProject.id);
+        }
+    });
+
     // Setup tabs
     document.querySelectorAll('.tab-btn').forEach(btn => {
         btn.addEventListener('click', () => {
@@ -76,6 +83,7 @@ async function loadProjectData(projectId) {
 
         // Store data for tabs
         window.currentProject = data.project;
+        window.currentProjectId = projectId;
 
         // Render initial tab
         renderTab('overview', projectId);
@@ -507,15 +515,29 @@ function showAddCommentModal(projectId) {
     
     document.getElementById('submit-comment').addEventListener('click', async () => {
         const message = document.getElementById('comment-text').value.trim();
-        if (!message) return;
+        if (!message) {
+            showToast('Please enter a comment', 'error');
+            return;
+        }
+
+        const submitBtn = document.getElementById('submit-comment');
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Adding...';
 
         try {
             await addTimelineEvent({ projectId, message });
             closeModal();
-            // Reload project data
-            await loadProjectData(projectId);
+            showToast('Comment added successfully', 'success');
+            // Reload project data and refresh current view
+            const data = await fetchProjectSummary({ projectId });
+            window.currentProject = data.project;
+            // Get current active tab and re-render it
+            const activeTab = document.querySelector('.tab-btn.active')?.getAttribute('data-tab') || 'overview';
+            renderTab(activeTab, projectId);
         } catch (error) {
-            alert('Failed to add comment: ' + error.message);
+            showToast('Failed to add comment: ' + error.message, 'error');
+            submitBtn.disabled = false;
+            submitBtn.textContent = 'Add Comment';
         }
     });
 }
@@ -615,3 +637,23 @@ window.uploadDocument = async (milestoneId) => {
         await showMilestoneUpdateModal(milestone, window.currentProject?.id);
     }
 };
+
+function showToast(message, type = 'info') {
+    const toast = document.createElement('div');
+    toast.className = `toast toast-${type}`;
+    toast.textContent = message;
+    document.body.appendChild(toast);
+    
+    setTimeout(() => {
+        toast.classList.add('show');
+    }, 100);
+    
+    setTimeout(() => {
+        toast.classList.remove('show');
+        setTimeout(() => {
+            if (document.body.contains(toast)) {
+                document.body.removeChild(toast);
+            }
+        }, 300);
+    }, 3000);
+}

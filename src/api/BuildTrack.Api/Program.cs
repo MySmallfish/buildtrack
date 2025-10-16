@@ -169,6 +169,7 @@ app.MapDocumentEndpoints();
 app.MapUserEndpoints();
 app.MapNotificationEndpoints();
 app.MapAutomationEndpoints();
+app.MapAnalyticsEndpoints();
 
 // Request logging middleware
 app.Use(async (context, next) =>

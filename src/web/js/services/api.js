@@ -550,6 +550,18 @@ export async function addMilestoneUpdate({ milestoneId, comment, newStatus, docu
     return response.json();
 }
 
+// Analytics
+export async function fetchAnalyticsSummary() {
+    const response = await fetchWithAuth(`${API_BASE}/analytics/summary`);
+
+    if (!response.ok) {
+        const message = await getErrorMessage(response);
+        throw new Error(message);
+    }
+
+    return response.json();
+}
+
 export async function addCustomMilestone({ projectId, name, milestoneTypeId, dueOffsetDays, absoluteDueDate }) {
     const response = await fetchWithAuth(`${API_BASE}/projects/${projectId}/milestones`, {
         method: 'POST',

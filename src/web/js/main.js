@@ -329,6 +329,11 @@ async function renderPage(route) {
             const { renderOverviewPage } = await import('./pages/overviewPage.js');
             await renderOverviewPage(container);
             break;
+
+        case 'analytics':
+            const { renderAnalyticsPage } = await import('./pages/analyticsPage.js');
+            await renderAnalyticsPage(container);
+            break;
         
         case 'projectsActive':
             const { renderGridView } = await import('./pages/gridView.js');

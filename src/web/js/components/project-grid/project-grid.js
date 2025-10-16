@@ -40,7 +40,7 @@ template.innerHTML = `
 
     .row, .header {
       display: grid;
-      grid-template-columns: var(--project-col-width) repeat(var(--col-count), var(--col-width));
+      grid-template-columns: var(--project-col-width) 1fr;
       gap: var(--gap);
     }
 
@@ -51,13 +51,23 @@ template.innerHTML = `
       font-weight: 600;
     }
 
-    .hcell, .cell, .pcol {
+    .hcell, .pcol {
       padding: 8px 10px;
       border-bottom: 1px solid var(--c-border);
       display: flex;
       align-items: center;
       gap: 8px;
       min-height: 48px;
+    }
+
+    .milestones-cell {
+      padding: 8px 10px;
+      border-bottom: 1px solid var(--c-border);
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-height: 48px;
+      flex-wrap: wrap;
     }
 
     /* Sticky first column */
@@ -80,17 +90,24 @@ template.innerHTML = `
       font-size: 12px; color: var(--c-muted);
     }
 
-    /* Cell content */
-    .cell {
+    /* Milestone item */
+    .milestone-item {
       position: relative;
-      justify-content: center;
+      display: flex;
       flex-direction: column;
+      align-items: center;
+      gap: 4px;
       cursor: pointer;
       outline: none;
-    }
-    .cell:focus-visible {
-      box-shadow: inset 0 0 0 2px #5e9cff;
+      padding: 6px 8px;
       border-radius: 8px;
+      transition: background-color 0.15s;
+    }
+    .milestone-item:hover {
+      background-color: #f3f4f6;
+    }
+    .milestone-item:focus-visible {
+      box-shadow: inset 0 0 0 2px #5e9cff;
     }
 
     .swatch {
@@ -123,13 +140,11 @@ template.innerHTML = `
       color: var(--c-text);
       line-height: 1.2;
       text-align: center;
-      max-width: 100%;
+      max-width: 120px;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
-      margin-bottom: 6px;
-      padding: 2px 4px;
-      border-bottom: 1px solid var(--c-border);
+      margin-bottom: 2px;
     }
 
     .skill {
@@ -175,7 +190,7 @@ template.innerHTML = `
   <div class="grid" role="table" aria-label="Projects grid">
     <div class="header" role="row">
       <div class="hcell h-project" role="columnheader">Project</div>
-      <div class="hcols"></div>
+      <div class="hcell" role="columnheader">Milestones</div>
     </div>
     <div class="body" role="rowgroup"></div>
   </div>
@@ -185,7 +200,8 @@ function statusToClass(status) {
   switch (status) {
     case 'NOT_STARTED': return 'white';
     case 'IN_PROGRESS': return 'gray';
-    case 'RISK':        return 'orange';
+    case 'RISK':
+    case 'BLOCKED':     return 'orange';
     case 'FAILED':
     case 'OVERDUE':     return 'red';
     case 'DONE':        return 'green';
@@ -194,7 +210,7 @@ function statusToClass(status) {
 }
 
 function shouldShowSkill(status) {
-  return status === 'IN_PROGRESS' || status === 'RISK' || status === 'FAILED' || status === 'OVERDUE';
+  return status === 'IN_PROGRESS' || status === 'RISK' || status === 'BLOCKED' || status === 'FAILED' || status === 'OVERDUE';
 }
 
 // XState machine controls component lifecycle & data
@@ -231,7 +247,6 @@ export class ProjectGrid extends HTMLElement {
     super();
     this.attachShadow({ mode: 'open' }).appendChild(template.content.cloneNode(true));
     this._grid = this.shadowRoot.querySelector('.grid');
-    this._hcols = this.shadowRoot.querySelector('.hcols');
     this._body  = this.shadowRoot.querySelector('.body');
     this._legend = this.shadowRoot.querySelector('.legend');
 
@@ -253,8 +268,7 @@ export class ProjectGrid extends HTMLElement {
   get options() { return this._actor.getSnapshot()?.context.options ?? {}; }
 
   connectedCallback() {
-    // make header reflect initial style sizing
-    this._applyColVars();
+    // Component connected to DOM
   }
 
   /** Render based on context.data & options */
@@ -262,24 +276,10 @@ export class ProjectGrid extends HTMLElement {
     const { data, options } = ctx;
     this._legend.style.display = options?.showLegend ? '' : 'none';
 
-    if (!data || !data.columns?.length) {
-      this._hcols.innerHTML = '';
+    if (!data || !data.rows?.length) {
       this._body.innerHTML = `<div class="empty">No data</div>`;
-      this._applyColVars(0);
       return;
     }
-
-    // Header columns
-    this._hcols.innerHTML = '';
-    const fragH = document.createDocumentFragment();
-    for (const col of data.columns) {
-      const hc = document.createElement('div');
-      hc.className = 'hcell';
-      hc.setAttribute('role', 'columnheader');
-      hc.textContent = col.name;
-      fragH.appendChild(hc);
-    }
-    this._hcols.appendChild(fragH);
 
     // Rows
     this._body.innerHTML = '';
@@ -299,72 +299,72 @@ export class ProjectGrid extends HTMLElement {
       `;
       r.appendChild(pcol);
 
-      // Cells
-      for (const col of data.columns) {
-        const cellData = row.cells[col.id] ?? { status: 'NOT_STARTED' };
-        const swatchClass = statusToClass(cellData.status);
-        const showSkill = shouldShowSkill(cellData.status) && cellData.skill;
+      // Milestones cell - contains all milestones for this project
+      const milestonesCell = document.createElement('div');
+      milestonesCell.className = 'milestones-cell';
+      milestonesCell.setAttribute('role', 'gridcell');
 
-        const cell = document.createElement('div');
-        cell.className = 'cell';
-        cell.tabIndex = 0;
-        cell.title = cellData.tooltip ?? `${col.name} – ${cellData.status}`;
-        cell.setAttribute('role', 'gridcell');
-        cell.dataset.projectId = row.projectId;
-        cell.dataset.milestoneId = col.id;
+      // Get all milestones for this project
+      const milestones = row.milestones || [];
+      
+      if (milestones.length === 0) {
+        milestonesCell.innerHTML = '<span style="color: var(--c-muted); font-size: 12px;">No milestones</span>';
+      } else {
+        // Create a milestone item for each milestone
+        milestones.forEach((milestone) => {
+          const swatchClass = statusToClass(milestone.status);
+          const showSkill = shouldShowSkill(milestone.status) && milestone.skill;
 
-        // Show milestone name at top if available
-        if (cellData.milestoneName && !cellData.isEmpty) {
-          const milestoneName = document.createElement('div');
-          milestoneName.className = 'milestone-name';
-          milestoneName.textContent = cellData.milestoneName;
-          milestoneName.title = cellData.milestoneName;
-          cell.appendChild(milestoneName);
-        }
+          const milestoneItem = document.createElement('div');
+          milestoneItem.className = 'milestone-item';
+          milestoneItem.tabIndex = 0;
+          milestoneItem.title = milestone.tooltip ?? `${milestone.name} – ${milestone.status}`;
+          milestoneItem.dataset.projectId = row.projectId;
+          milestoneItem.dataset.milestoneId = milestone.id;
 
-        // swatch
-        const swatch = document.createElement('div');
-        swatch.className = `swatch ${swatchClass}${cellData.late && cellData.status === 'DONE' ? ' late' : ''}`;
-        swatch.setAttribute('aria-label', `${col.name} status ${cellData.status}${cellData.late ? ' (late)' : ''}`);
+          // Milestone name
+          const nameDiv = document.createElement('div');
+          nameDiv.className = 'milestone-name';
+          nameDiv.textContent = milestone.name || 'Unnamed';
+          nameDiv.title = milestone.name;
+          milestoneItem.appendChild(nameDiv);
 
-        cell.appendChild(swatch);
+          // Swatch
+          const swatch = document.createElement('div');
+          swatch.className = `swatch ${swatchClass}${milestone.late && milestone.status === 'DONE' ? ' late' : ''}`;
+          swatch.setAttribute('aria-label', `${milestone.name} status ${milestone.status}${milestone.late ? ' (late)' : ''}`);
+          milestoneItem.appendChild(swatch);
 
-        if (showSkill) {
-          const skill = document.createElement('div');
-          skill.className = 'skill';
-          skill.textContent = cellData.skill;
-          cell.appendChild(skill);
-        }
+          // Skill
+          if (showSkill) {
+            const skill = document.createElement('div');
+            skill.className = 'skill';
+            skill.textContent = milestone.skill;
+            milestoneItem.appendChild(skill);
+          }
 
-        // Interaction: click → dispatch event to host
-        cell.addEventListener('click', () => {
-          // Skip empty cells
-          if (cellData.isEmpty) return;
-          
-          this.dispatchEvent(new CustomEvent('cell-click', {
-            bubbles: true, composed: true,
-            detail: {
-              projectId: row.projectId,
-              projectName: row.projectName,
-              milestoneId: cellData.milestoneId || col.id,
-              milestoneName: cellData.milestoneName || col.name,
-              cell: cellData
-            }
-          }));
+          // Interaction: click → dispatch event to host
+          milestoneItem.addEventListener('click', () => {
+            this.dispatchEvent(new CustomEvent('cell-click', {
+              bubbles: true, composed: true,
+              detail: {
+                projectId: row.projectId,
+                projectName: row.projectName,
+                milestoneId: milestone.id,
+                milestoneName: milestone.name,
+                cell: milestone
+              }
+            }));
+          });
+
+          milestonesCell.appendChild(milestoneItem);
         });
-
-        r.appendChild(cell);
       }
 
+      r.appendChild(milestonesCell);
       fragB.appendChild(r);
     }
     this._body.appendChild(fragB);
-
-    this._applyColVars(data.columns.length);
-  }
-
-  _applyColVars(colCount = 0) {
-    this.style.setProperty('--col-count', String(colCount));
   }
 }
 
